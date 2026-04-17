@@ -43,10 +43,11 @@
             <artifactId>kotlin-stdlib</artifactId>
         </dependency>
 
+        <!-- Apache Commons Lang 3.9 old version-->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
-            <version>3.20.0</version>
+            <version>3.9</version>
         </dependency>
 
 <!--        <dependency>-->

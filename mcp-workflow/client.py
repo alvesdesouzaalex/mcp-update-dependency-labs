@@ -64,9 +64,7 @@ def interpret(prompt):
 # =========================
 # EXECUÇÃO
 # =========================
-
-user_prompt = "Atualize todas dependências críticas e abra um PR"
-
+user_prompt = input("\nDigite o comando: ")
 print(f"\nUser prompt: {user_prompt}")
 
 actions = interpret(user_prompt)
