@@ -83,3 +83,11 @@ for i, (tool, args) in enumerate(actions, start=2):
     })
 
     print("Response:", response)
+
+
+# =========================
+# SERVER
+# =========================
+# if __name__ == "__main__":
+#    print("\nInitializing MCP session...")
+#    # send({"Atualize todas dependências críticas e abra um PR"})
