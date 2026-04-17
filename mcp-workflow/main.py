@@ -1,5 +1,6 @@
 import subprocess
 import json
+import shutil
 import os
 
 
@@ -22,6 +23,21 @@ def run(cmd, cwd=None):
 def update_react_project(path):
     print("\n===== REACT PROJECT =====")
 
+    # 🔥 CLEAN
+    node_modules_path = os.path.join(path, "node_modules")
+    package_lock_path = os.path.join(path, "package-lock.json")
+
+    print("\nCleaning project...")
+
+    if os.path.exists(node_modules_path):
+        shutil.rmtree(node_modules_path)
+        print("node_modules removed")
+
+    if os.path.exists(package_lock_path):
+        os.remove(package_lock_path)
+        print("package-lock.json removed")
+
+    # detectar deps
     output = run("npm outdated --json", cwd=path)
 
     if not output.strip():
@@ -48,13 +64,14 @@ def update_react_project(path):
 
     print("\nUpdating dependencies to latest...")
 
-    # monta comando
     install_cmd = "npm install " + " ".join([f"{dep}@latest" for dep in deps_to_update])
-
     run(install_cmd, cwd=path)
 
     print("\nFinal install...")
     run("npm install", cwd=path)
+
+    print("\nRunning audit fix...")
+    run("npm audit fix", cwd=path)
 
 
 # =========================
