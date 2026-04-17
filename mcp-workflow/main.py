@@ -31,6 +31,7 @@ def update_react_project(path):
     deps = json.loads(output)
 
     print("\nOutdated React dependencies:")
+
     deps_to_update = []
 
     for dep, info in deps.items():
