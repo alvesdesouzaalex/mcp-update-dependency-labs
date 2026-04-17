@@ -84,6 +84,7 @@ def update_maven_project(path: str) -> str:
     """
 
     print("\n===== MAVEN PROJECT =====")
+    print("Path: ", path)
 
     run("mvn versions:display-dependency-updates", cwd=path)
     run("mvn versions:use-latest-releases", cwd=path)
