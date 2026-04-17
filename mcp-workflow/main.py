@@ -1,9 +1,15 @@
+from mcp.server.fastmcp import FastMCP
 import subprocess
 import json
-import shutil
 import os
+import shutil
+
+mcp = FastMCP("dependency-automation")
 
 
+# =========================
+# HELPER
+# =========================
 def run(cmd, cwd=None):
     print(f"\n>> {cmd}")
     result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
@@ -17,13 +23,16 @@ def run(cmd, cwd=None):
 
 
 # =========================
-# REACT PROJECT
+# REACT TOOL
 # =========================
+@mcp.tool()
+def update_react_project(path: str) -> str:
+    """
+    Update React dependencies to latest version
+    """
 
-def update_react_project(path):
     print("\n===== REACT PROJECT =====")
 
-    # 🔥 CLEAN
     node_modules_path = os.path.join(path, "node_modules")
     package_lock_path = os.path.join(path, "package-lock.json")
 
@@ -31,22 +40,18 @@ def update_react_project(path):
 
     if os.path.exists(node_modules_path):
         shutil.rmtree(node_modules_path)
-        print("node_modules removed")
 
     if os.path.exists(package_lock_path):
         os.remove(package_lock_path)
-        print("package-lock.json removed")
 
-    # detectar deps
+    run("npm install", cwd=path)
+
     output = run("npm outdated --json", cwd=path)
 
     if not output.strip():
-        print("React deps already updated")
-        return
+        return "React deps already updated"
 
     deps = json.loads(output)
-
-    print("\nOutdated React dependencies:")
 
     deps_to_update = []
 
@@ -55,67 +60,58 @@ def update_react_project(path):
         latest = info.get("latest", "unknown")
 
         if current != latest:
-            print(f"{dep}: {current} → {latest}")
             deps_to_update.append(dep)
 
     if not deps_to_update:
-        print("Nothing to update")
-        return
-
-    print("\nUpdating dependencies to latest...")
+        return "Nothing to update"
 
     install_cmd = "npm install " + " ".join([f"{dep}@latest" for dep in deps_to_update])
     run(install_cmd, cwd=path)
 
-    print("\nFinal install...")
     run("npm install", cwd=path)
-
-    print("\nRunning audit fix...")
     run("npm audit fix", cwd=path)
 
+    return f"Updated React deps: {deps_to_update}"
+
 
 # =========================
-# MAVEN PROJECT
+# MAVEN TOOL
 # =========================
+@mcp.tool()
+def update_maven_project(path: str) -> str:
+    """
+    Update Maven dependencies to latest versions
+    """
 
-def update_maven_project(path):
     print("\n===== MAVEN PROJECT =====")
 
-    # usa plugin versions
     run("mvn versions:display-dependency-updates", cwd=path)
-
-    # atualizar automaticamente
     run("mvn versions:use-latest-releases", cwd=path)
 
+    return "Maven dependencies updated"
+
 
 # =========================
-# GIT
+# GIT TOOL
 # =========================
+@mcp.tool()
+def create_pr(repo_path: str, branch_name: str) -> str:
+    """
+    Create branch, commit changes and push
+    """
 
-def create_pr_flow(repo_path, branch_name):
     print("\n===== GIT FLOW =====")
 
     run(f"git checkout -b {branch_name}", cwd=repo_path)
     run("git add .", cwd=repo_path)
-    run('git commit -m "chore: update dependencies via automation"', cwd=repo_path)
+    run('git commit -m "chore: update dependencies via MCP"', cwd=repo_path)
     run(f"git push origin {branch_name}", cwd=repo_path)
 
-    print("\nBranch criada. Para abrir PR:")
-    print("gh pr create --fill")
+    return f"Branch {branch_name} pushed. Run: gh pr create --fill"
 
 
 # =========================
-# MAIN
+# SERVER
 # =========================
-
 if __name__ == "__main__":
-    BASE_PATH = os.getcwd()
-    BASE_PATH = BASE_PATH.replace("mcp-workflow", "")
-
-    react_path = os.path.join(BASE_PATH, "mcp-frontend")  # ajuste nome
-    maven_path = os.path.join(BASE_PATH, "mcp-backend")  # ajuste nome
-
-    update_react_project(react_path)
-    update_maven_project(maven_path)
-
-    create_pr_flow(BASE_PATH, "chore/update-deps")
+    mcp.run(transport="stdio")
