@@ -1,0 +1,1 @@
+Atualize todas dependências críticas e abra um PR
