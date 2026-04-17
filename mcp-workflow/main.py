@@ -31,15 +31,28 @@ def update_react_project(path):
     deps = json.loads(output)
 
     print("\nOutdated React dependencies:")
+    deps_to_update = []
+
     for dep, info in deps.items():
         current = info.get("current", info.get("wanted", "unknown"))
         latest = info.get("latest", "unknown")
 
         if current != latest:
             print(f"{dep}: {current} → {latest}")
+            deps_to_update.append(dep)
 
-    print("\nUpdating dependencies...")
-    run("npm update", cwd=path)
+    if not deps_to_update:
+        print("Nothing to update")
+        return
+
+    print("\nUpdating dependencies to latest...")
+
+    # monta comando
+    install_cmd = "npm install " + " ".join([f"{dep}@latest" for dep in deps_to_update])
+
+    run(install_cmd, cwd=path)
+
+    print("\nFinal install...")
     run("npm install", cwd=path)
 
 
