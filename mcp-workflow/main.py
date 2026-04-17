@@ -97,7 +97,7 @@ def update_maven_project(path: str) -> str:
 @mcp.tool()
 def create_pr(repo_path: str, branch_name: str) -> str:
     """
-    Create branch, commit changes and push
+    Create branch, commit changes, push and open PR
     """
 
     print("\n===== GIT FLOW =====")
@@ -107,7 +107,23 @@ def create_pr(repo_path: str, branch_name: str) -> str:
     run('git commit -m "chore: update dependencies via MCP"', cwd=repo_path)
     run(f"git push origin {branch_name}", cwd=repo_path)
 
-    return f"Branch {branch_name} pushed. Run: gh pr create --fill"
+    print("\nCreating PR...")
+
+    pr_output = run(
+        "gh pr create --title 'chore: update dependencies' --body 'Automated update via MCP' --fill",
+        cwd=repo_path
+    )
+
+    # tenta extrair URL (geralmente última linha)
+    pr_url = None
+    for line in pr_output.splitlines():
+        if "https://github.com" in line:
+            pr_url = line.strip()
+
+    if pr_url:
+        return f"PR created: {pr_url}"
+
+    return "PR created, but URL not detected"
 
 
 # =========================
