@@ -1,133 +1,32 @@
-from mcp.server.fastmcp import FastMCP
-import subprocess
-import json
+import asyncio
 import os
-import shutil
+import sys
+from dotenv import load_dotenv
 
-mcp = FastMCP("dependency-automation")
+# Add current directory to path to ensure local imports work
+sys.path.append(os.path.dirname(__file__))
 
+from workflow import run_workflow
 
-# =========================
-# HELPER
-# =========================
-def run(cmd, cwd=None):
-    print(f"\n>> {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
+def main():
+    print("=== MCP Dependency Workflow CLI ===")
+    
+    # Load environment variables (GITHUB_TOKEN, etc.)
+    load_dotenv()
+    
+    # Get instruction from args
+    instruction = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "atualize tudo"
+    
+    # Check if we can run
+    try:
+        pr_link = asyncio.run(run_workflow(instruction))
+        if pr_link:
+            print(f"\n✅ Concluído! Para abrir o Pull Request, clique aqui:\n{pr_link}")
+        else:
+            print("\n✅ Fluxo concluído!")
+    except Exception as e:
+        print(f"\n❌ Erro no workflow: {e}")
+        # sys.exit(1) # Removed for flexibility in internal tool run
 
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
-
-    return result.stdout
-
-
-# =========================
-# REACT TOOL
-# =========================
-@mcp.tool()
-def update_react_project(path: str) -> str:
-    """
-    Update React dependencies to latest version
-    """
-
-    print("\n===== REACT PROJECT =====")
-
-    node_modules_path = os.path.join(path, "node_modules")
-    package_lock_path = os.path.join(path, "package-lock.json")
-
-    print("\nCleaning project...")
-
-    if os.path.exists(node_modules_path):
-        shutil.rmtree(node_modules_path)
-
-    if os.path.exists(package_lock_path):
-        os.remove(package_lock_path)
-
-    run("npm install", cwd=path)
-
-    output = run("npm outdated --json", cwd=path)
-
-    if not output.strip():
-        return "React deps already updated"
-
-    deps = json.loads(output)
-
-    deps_to_update = []
-
-    for dep, info in deps.items():
-        current = info.get("current", info.get("wanted", "unknown"))
-        latest = info.get("latest", "unknown")
-
-        if current != latest:
-            deps_to_update.append(dep)
-
-    if not deps_to_update:
-        return "Nothing to update"
-
-    install_cmd = "npm install " + " ".join([f"{dep}@latest" for dep in deps_to_update])
-    run(install_cmd, cwd=path)
-
-    run("npm install", cwd=path)
-    run("npm audit fix", cwd=path)
-
-    return f"Updated React deps: {deps_to_update}"
-
-
-# =========================
-# MAVEN TOOL
-# =========================
-@mcp.tool()
-def update_maven_project(path: str) -> str:
-    """
-    Update Maven dependencies to latest versions
-    """
-
-    print("\n===== MAVEN PROJECT =====")
-
-    run("mvn versions:display-dependency-updates", cwd=path)
-    run("mvn versions:use-latest-releases", cwd=path)
-
-    return "Maven dependencies updated"
-
-
-# =========================
-# GIT TOOL
-# =========================
-@mcp.tool()
-def create_pr(repo_path: str, branch_name: str) -> str:
-    """
-    Create branch, commit changes, push and open PR
-    """
-
-    print("\n===== GIT FLOW =====")
-
-    run(f"git checkout -b {branch_name}", cwd=repo_path)
-    run("git add .", cwd=repo_path)
-    run('git commit -m "chore: update dependencies via MCP"', cwd=repo_path)
-    run(f"git push origin {branch_name}", cwd=repo_path)
-
-    print("\nCreating PR...")
-
-    pr_output = run(
-        "gh pr create --title 'chore: update dependencies' --body 'Automated update via MCP' --fill",
-        cwd=repo_path
-    )
-
-    # tenta extrair URL (geralmente última linha)
-    pr_url = None
-    for line in pr_output.splitlines():
-        if "https://github.com" in line:
-            pr_url = line.strip()
-
-    if pr_url:
-        return f"PR created: {pr_url}"
-
-    return "PR created, but URL not detected"
-
-
-# =========================
-# SERVER
-# =========================
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()
