@@ -2,10 +2,13 @@ import asyncio
 import os
 import json
 import requests
+import sys
 from mcp_client import MCPClientHelper
 from dependency_utils import (
     get_latest_maven_version, 
     get_latest_npm_version, 
+    scan_maven_dependencies,
+    scan_npm_dependencies,
     update_pom_xml, 
     update_package_json
 )
@@ -13,20 +16,36 @@ from dependency_utils import (
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 GITHUB_REPO = "alvesdesouzaalex/mcp-update-dependency-labs"
 
-async def run_workflow():
-    print(f"Starting workflow in {ROOT_DIR}")
+def parse_instruction(instruction: str) -> dict:
+    """Parses user instruction to identify targets and PR requirement."""
+    instr = instruction.lower()
+    
+    # Check for targets
+    update_react = any(kw in instr for kw in ["react", "frontend", "tudo", "ambos", "projetos"])
+    update_backend = any(kw in instr for kw in ["backend", "spring", "tudo", "ambos", "projetos"])
+    
+    # Check for PR
+    create_pr_requested = any(kw in instr for kw in ["pull request", "pr", "abrir", "cria"])
+    
+    return {
+        "react": update_react,
+        "backend": update_backend,
+        "pr": create_pr_requested
+    }
+
+async def run_workflow(instruction: str = "atualize tudo"):
+    params = parse_instruction(instruction)
+    print(f"Workflow params: {params} based on: '{instruction}'")
     
     # 1. CLEANUP
-    print("Step 1: Cleanup node_modules...")
-    node_modules = os.path.join(ROOT_DIR, "mcp-frontend", "node_modules")
-    if os.path.exists(node_modules):
-        # We could use the filesystem MCP to delete, but for speed we use shutil locally
-        import shutil
-        shutil.rmtree(node_modules)
-        print("node_modules removed.")
-    else:
-        print("node_modules not found, skipping cleanup.")
-
+    if params["react"]:
+        print("Step 1: Cleanup node_modules...")
+        node_modules = os.path.join(ROOT_DIR, "mcp-frontend", "node_modules")
+        if os.path.exists(node_modules):
+            import shutil
+            shutil.rmtree(node_modules)
+            print("node_modules removed.")
+    
     # 2. CONNECT TO MCP SERVERS
     print("Step 2: Connecting to MCP Servers...")
     # Using npx to run official servers
@@ -41,65 +60,87 @@ async def run_workflow():
         # 3. READ DEPENDENCIES
         print("Step 3: Reading dependencies...")
         
-        # Backend (Maven)
+        pom_content = ""
         pom_path = os.path.join(ROOT_DIR, "mcp-backend", "pom.xml")
-        pom_resp = await fs_client.call_tool("read_file", {"path": pom_path})
-        pom_content = pom_resp.content[0].text
+        if params["backend"]:
+            pom_resp = await fs_client.call_tool("read_file", {"path": pom_path})
+            pom_content = pom_resp.content[0].text
         
-        # Frontend (NPM)
+        pkg_content = ""
         pkg_path = os.path.join(ROOT_DIR, "mcp-frontend", "package.json")
-        pkg_resp = await fs_client.call_tool("read_file", {"path": pkg_path})
-        pkg_content = pkg_resp.content[0].text
+        if params["react"]:
+            pkg_resp = await fs_client.call_tool("read_file", {"path": pkg_path})
+            pkg_content = pkg_resp.content[0].text
 
         # 4. FIND UPDATES
-        print("Step 4: Finding updates...")
+        print("Step 4: Finding updates dynamically...")
         
         # Backend Updates
-        # Hardcoding targets for this lab, but could be dynamic
-        maven_updates = {
-            ("org.apache.commons", "commons-lang3"): get_latest_maven_version("org.apache.commons", "commons-lang3")
-        }
+        maven_updates = {}
+        if params["backend"]:
+            found_maven_deps = scan_maven_dependencies(pom_content)
+            print(f"Found {len(found_maven_deps)} Maven dependencies with explicit versions.")
+            for (g, a), v in found_maven_deps.items():
+                latest = get_latest_maven_version(g, a)
+                if latest and latest != v:
+                    maven_updates[(g, a)] = latest
+                    print(f"  [UPDATE] {g}:{a} -> {latest} (current: {v})")
         
         # Frontend Updates
-        npm_updates = {
-            "axios": get_latest_npm_version("axios"),
-            "lodash": get_latest_npm_version("lodash")
-        }
-
-        print(f"Maven Updates: {maven_updates}")
-        print(f"NPM Updates: {npm_updates}")
+        npm_updates = {}
+        if params["react"]:
+            found_npm_deps = scan_npm_dependencies(pkg_content)
+            print(f"Found {len(found_npm_deps)} NPM dependencies.")
+            for pkg, v in found_npm_deps.items():
+                latest = get_latest_npm_version(pkg)
+                if latest and latest != v:
+                    npm_updates[pkg] = latest
+                    print(f"  [UPDATE] {pkg} -> {latest} (current: {v})")
 
         # 5. APPLY UPDATES
-        print("Step 5: Applying updates...")
-        new_pom = update_pom_xml(pom_content, maven_updates)
-        new_pkg = update_package_json(pkg_content, npm_updates)
-
-        await fs_client.call_tool("write_file", {"path": pom_path, "content": new_pom})
-        await fs_client.call_tool("write_file", {"path": pkg_path, "content": new_pkg})
+        if maven_updates or npm_updates:
+            print("Step 5: Applying updates...")
+            if maven_updates:
+                new_pom = update_pom_xml(pom_content, maven_updates)
+                await fs_client.call_tool("write_file", {"path": pom_path, "content": new_pom})
+            
+            if npm_updates:
+                new_pkg = update_package_json(pkg_content, npm_updates)
+                await fs_client.call_tool("write_file", {"path": pkg_path, "content": new_pkg})
+        else:
+            print("No updates needed based on parameters.")
 
         # 6. GIT WORKFLOW
         print("Step 6: Git Workflow...")
         branch_name = f"update-deps-{os.urandom(2).hex()}"
         
         await git_client.call_tool("git_checkout", {"branch": branch_name, "create_branch": True})
-        await git_client.call_tool("git_add", {"files": ["mcp-backend/pom.xml", "mcp-frontend/package.json"]})
-        await git_client.call_tool("git_commit", {"message": "chore: update dependencies via MCP workflow"})
         
-        # Push requires remote setup, assuming origin exists
-        try:
-            await git_client.call_tool("git_push", {"remote": "origin", "branch": branch_name})
-        except Exception as e:
-            print(f"Push failed (expected if remote not configured): {e}")
+        files_to_add = []
+        if maven_updates: files_to_add.append("mcp-backend/pom.xml")
+        if npm_updates: files_to_add.append("mcp-frontend/package.json")
+        
+        if files_to_add:
+            await git_client.call_tool("git_add", {"files": files_to_add})
+            await git_client.call_tool("git_commit", {"message": f"chore: dynamic update of {len(maven_updates) + len(npm_updates)} dependencies"})
+            
+            try:
+                await git_client.call_tool("git_push", {"remote": "origin", "branch": branch_name})
+            except Exception as e:
+                print(f"Push skipped or failed: {e}")
 
         # 7. CREATE PULL REQUEST
-        print("Step 7: Creating Pull Request...")
-        create_pull_request(branch_name)
+        if params["pr"]:
+            print("Step 7: Creating Pull Request...")
+            pr_link = create_pull_request(branch_name)
+            print(f"\n🚀 PR Link: {pr_link}")
+            return pr_link
 
-def create_pull_request(branch_name: str):
+def create_pull_request(branch_name: str) -> str:
+    manual_link = f"https://github.com/{GITHUB_REPO}/pull/new/{branch_name}"
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        print("GITHUB_TOKEN not found. Skipping PR creation.")
-        return
+        return manual_link
 
     url = f"https://api.github.com/repos/{GITHUB_REPO}/pulls"
     headers = {
@@ -107,17 +148,20 @@ def create_pull_request(branch_name: str):
         "Accept": "application/vnd.github.v3+json"
     }
     payload = {
-        "title": "chore: update dependencies",
-        "body": "Automated dependency update generated by mcp-workflow.",
+        "title": "chore: dynamic dependency update",
+        "body": "Automated dependency update generated by mcp-workflow using dynamic scanning.",
         "head": branch_name,
         "base": "main"
     }
     
-    resp = requests.post(url, headers=headers, json=payload)
-    if resp.status_code == 201:
-        print(f"PR Created successfully: {resp.json().get('html_url')}")
-    else:
-        print(f"Failed to create PR: {resp.status_code} - {resp.text}")
+    try:
+        resp = requests.post(url, headers=headers, json=payload)
+        if resp.status_code == 201:
+            return resp.json().get('html_url', manual_link)
+    except:
+        pass
+        
+    return manual_link
 
 if __name__ == "__main__":
-    asyncio.run(run_workflow())
+    asyncio.run(run_workflow(" ".join(sys.argv[1:]) if len(sys.argv) > 1 else "atualize tudo"))

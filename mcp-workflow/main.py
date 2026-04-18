@@ -14,13 +14,19 @@ def main():
     # Load environment variables (GITHUB_TOKEN, etc.)
     load_dotenv()
     
+    # Get instruction from args
+    instruction = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "atualize tudo"
+    
     # Check if we can run
     try:
-        asyncio.run(run_workflow())
-        print("\nWorkflow completed successfully!")
+        pr_link = asyncio.run(run_workflow(instruction))
+        if pr_link:
+            print(f"\n✅ Concluído! Para abrir o Pull Request, clique aqui:\n{pr_link}")
+        else:
+            print("\n✅ Fluxo concluído!")
     except Exception as e:
-        print(f"\nWorkflow failed: {e}")
-        sys.exit(1)
+        print(f"\n❌ Erro no workflow: {e}")
+        # sys.exit(1) # Removed for flexibility in internal tool run
 
 if __name__ == "__main__":
     main()
